@@ -5,7 +5,7 @@ const API_URL = '/api';
 let currentSessionId = null;
 
 // DOM elements
-let chatMessages, chatInput, sendButton, totalCourses, courseTitles;
+let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatButton;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,7 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
     sendButton = document.getElementById('sendButton');
     totalCourses = document.getElementById('totalCourses');
     courseTitles = document.getElementById('courseTitles');
-    
+    newChatButton = document.getElementById('newChatButton');
+
     setupEventListeners();
     createNewSession();
     loadCourseStats();
@@ -28,6 +29,7 @@ function setupEventListeners() {
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
+    newChatButton.addEventListener('click', handleNewChat);
     
     
     // Suggested questions
@@ -71,7 +73,10 @@ async function sendMessage() {
             })
         });
 
-        if (!response.ok) throw new Error('Query failed');
+        if (!response.ok) {
+            const detail = await response.json().catch(() => ({}));
+            throw new Error(detail.detail || `Query failed (HTTP ${response.status})`);
+        }
 
         const data = await response.json();
         
@@ -122,10 +127,22 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        const seen = new Set();
+        const dedupedSources = sources.filter(s => {
+            if (seen.has(s.label)) return false;
+            seen.add(s.label);
+            return true;
+        });
+        const sourcesHtml = dedupedSources.map(s =>
+            `<li>${s.url
+                ? `<a href="${s.url}" target="_blank" rel="noopener">${escapeHtml(s.label)}</a>`
+                : escapeHtml(s.label)
+            }</li>`
+        ).join('');
         html += `
             <details class="sources-collapsible">
                 <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+                <ul class="sources-content">${sourcesHtml}</ul>
             </details>
         `;
     }
@@ -150,6 +167,21 @@ async function createNewSession() {
     currentSessionId = null;
     chatMessages.innerHTML = '';
     addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+}
+
+async function handleNewChat() {
+    if (currentSessionId) {
+        try {
+            await fetch(`${API_URL}/reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSessionId })
+            });
+        } catch (e) {
+            // Non-fatal: old session history is capped anyway
+        }
+    }
+    createNewSession();
 }
 
 // Load course statistics
